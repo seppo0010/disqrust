@@ -28,6 +28,7 @@ impl HandlerCall {
     }
 }
 
+#[derive(Clone)]
 struct MyHandler {
     sender: Sender<HandlerCall>,
     process_job_ret: JobStatus,
@@ -44,6 +45,9 @@ impl MyHandler {
         }
     }
 }
+
+unsafe impl Send for MyHandler {}
+unsafe impl Sync for MyHandler {}
 
 impl Handler for MyHandler {
     fn process_job(&self, queue_name: &[u8], jobid: &String, body: Vec<u8>
@@ -73,6 +77,7 @@ fn basic() {
                 JobStatus::AckJob, true));
     el.watch_queue(queue.to_vec());
     el.run_times(1);
+    el.stop();
     assert_eq!(rx.try_recv().unwrap().body(), b"my job".to_vec());
     assert!(rx.try_recv().is_err());
 }
@@ -91,6 +96,7 @@ fn error() {
                 JobStatus::AckJob, false));
     el.watch_queue(queue.to_vec());
     el.run_times(1);
+    el.stop();
     assert_eq!(rx.try_recv().unwrap().nack_additional_deliveries(), (1, 0));
     assert!(rx.try_recv().is_err());
 }
@@ -109,6 +115,7 @@ fn error_and_job() {
                 JobStatus::AckJob, true));
     el.watch_queue(queue.to_vec());
     el.run_times(1);
+    el.stop();
     assert_eq!(rx.try_recv().unwrap().nack_additional_deliveries(), (1, 0));
     assert_eq!(rx.try_recv().unwrap().body(), b"my job");
     assert!(rx.try_recv().is_err());

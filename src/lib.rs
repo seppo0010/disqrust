@@ -1,7 +1,9 @@
 extern crate disque;
 
 use std::collections::HashSet;
-use std::thread::JoinHandle;
+use std::sync::Arc;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread::{spawn, JoinHandle};
 
 use disque::Disque;
 
@@ -17,21 +19,61 @@ pub trait Handler {
     fn process_error(&self, queue_name: &[u8], jobid: &String, nack: u32, additional_deliveries: u32) -> bool;
 }
 
-pub struct EventLoop<H: Handler> {
+fn create_worker<H: Handler + Send + Sync + 'static>(position: usize,
+        task_rx: Receiver<Option<(Vec<u8>, String, Vec<u8>, u32, u32)>>,
+        completion_tx: Sender<(usize, String, JobStatus)>,
+        handler_: Arc<H>,
+        ) -> JoinHandle<()> {
+    let handler = handler_.clone();
+    spawn(move || {
+        loop {
+            let (queue, jobid, job, nack,
+                additional_deliveries) = match task_rx.recv().unwrap() {
+                Some(v) => v,
+                None => break,
+            };
+
+            if nack > 0 || additional_deliveries > 0 {
+                if !handler.process_error(&*queue, &jobid, nack,
+                    additional_deliveries) {
+                    return;
+                }
+            }
+            let status = handler.process_job(&*queue, &jobid, job);
+
+            completion_tx.send((position, jobid, status)).unwrap();
+        }
+    })
+}
+
+pub struct EventLoop {
     disque: Disque,
-    workers: Vec<Option<JoinHandle<()>>>,
-    handler: H,
+    workers: Vec<(JoinHandle<()>, Sender<Option<(Vec<u8>, String, Vec<u8>, u32, u32)>>)>,
+    completion_rx: Receiver<(usize, String, JobStatus)>,
+    free_workers: HashSet<usize>,
     queues: HashSet<Vec<u8>>,
 }
 
-impl<H: Handler> EventLoop<H> {
-    pub fn new(disque: Disque, numworkers: usize, handler: H) -> Self {
+impl EventLoop {
+    pub fn new<H: Handler + Clone + Send + Sync + 'static>(
+            disque: Disque, numworkers: usize,
+            handler: H) -> Self {
         let mut workers = Vec::with_capacity(numworkers);
-        for _ in 0..numworkers { workers.push(None); }
+        let mut free_workers = HashSet::with_capacity(numworkers);
+        let (completion_tx, completion_rx) = channel();
+        let ahandler = Arc::new(handler);
+        for i in 0..numworkers {
+            let (task_tx, task_rx) = channel();
+            let jg = create_worker(i, task_rx, completion_tx.clone(),
+                    ahandler.clone());
+            workers.push((jg, task_tx));
+            free_workers.insert(i);
+        }
         EventLoop {
             disque: disque,
+            completion_rx: completion_rx,
             workers: workers,
-            handler: handler,
+            free_workers: free_workers,
             queues: HashSet::new(),
         }
     }
@@ -44,28 +86,55 @@ impl<H: Handler> EventLoop<H> {
         self.queues.remove(queue_name);
     }
 
-    fn run_once(&self) {
-        let (queue, jobid, job, nack, additional_deliveries
-                ) = self.disque.getjob_withcounters(
-                    false, None, &*self.queues.iter().map(|k| &**k).collect::<Vec<_>>()).unwrap().unwrap();
-        if nack > 0 || additional_deliveries > 0 {
-            if !self.handler.process_error(&*queue, &jobid, nack, additional_deliveries) {
-                return;
-            }
-        }
-        self.handler.process_job(&*queue, &jobid, job);
+    fn completed(&mut self, worker: usize, jobid: String, status: JobStatus) {
+        self.free_workers.insert(worker);
+        match status {
+            JobStatus::FastAck => self.disque.fastack(&[jobid.as_bytes()]),
+            JobStatus::AckJob => self.disque.ackjob(&[jobid.as_bytes()]),
+            JobStatus::NAck => self.disque.nack(&[jobid.as_bytes()]),
+        }.unwrap();
     }
 
-    pub fn run(&self) {
+    fn run_once(&mut self) -> bool {
+        while self.free_workers.len() != self.workers.len() {
+            match self.completion_rx.try_recv() {
+                Ok(c) => self.completed(c.0, c.1, c.2),
+                Err(_) => break,
+            }
+        }
+        let worker = match self.free_workers.iter().next() {
+            Some(w) => w.clone(),
+            None => return false,
+        };
+
+        let job = match self.disque.getjob_withcounters(false, None,
+                &*self.queues.iter().map(|k| &**k).collect::<Vec<_>>()
+                ).unwrap() {
+            Some(j) => j,
+            None => return false,
+        };
+        self.free_workers.remove(&worker);
+        self.workers[worker].1.send(Some(job)).unwrap();
+        true
+    }
+
+    pub fn run(&mut self) {
         loop {
             self.run_once();
         }
     }
 
-    pub fn run_times(&self, mut times: usize) {
+    pub fn run_times(&mut self, mut times: usize) {
         while times > 0 {
             times -= 1;
             self.run_once();
+        }
+    }
+
+    pub fn stop(self) {
+        for worker in self.workers {
+            worker.1.send(None).unwrap();
+            worker.0.join().unwrap();
         }
     }
 }
