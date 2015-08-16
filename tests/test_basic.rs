@@ -1,5 +1,3 @@
-#![feature(duration_span)]
-
 extern crate disqrust;
 extern crate disque;
 extern crate redis;
@@ -166,14 +164,12 @@ fn nack() {
     let handler = MyHandler::new(tx, JobStatus::NAck, true);
     let mut el = EventLoop::new(disque, 1, handler);
     el.watch_queue(queue.to_vec());
-    let d = Duration::span(|| {
-        el.run_times(3);
-        el.stop();
-        rx.try_recv().unwrap();
-        rx.try_recv().unwrap();
-        rx.try_recv().unwrap();
-    });
-    assert!(d.as_secs() < 1);
+
+    el.run_times(3);
+    el.stop();
+    rx.try_recv().unwrap();
+    rx.try_recv().unwrap();
+    rx.try_recv().unwrap();
 
     let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
     assert_eq!(*disque.show(jobid.as_bytes()).unwrap().unwrap().get(
