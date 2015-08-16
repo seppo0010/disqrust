@@ -62,35 +62,40 @@ impl Handler for MyHandler {
     }
 }
 
+#[cfg(test)]
+fn create_job(queue: &[u8], job: &[u8], nack: bool
+        ) -> (Disque, Vec<u8>, Vec<u8>, String) {
+    let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
+    let jobid = disque.addjob(queue, job, Duration::from_secs(10), None,
+            None, None, None, None, false).unwrap();
+    if nack {
+        disque.getjob(true, None, &[queue]).unwrap();
+        disque.nack(&[jobid.as_bytes()]).unwrap();
+    }
+    (disque, queue.to_vec(), job.to_vec(), jobid)
+}
 
 #[test]
 fn basic() {
-    let queue = b"basicqueue";
-    let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
-    disque.addjob(queue, b"my job", Duration::from_secs(10), None, None, None,
-            None, None, false).unwrap();
+    let (disque, queue, job, _) = create_job(b"basic", b"job67", false);
+
     let (tx, rx) = channel();
-    let mut el = EventLoop::new(disque, 1, MyHandler::new(tx,
-                JobStatus::AckJob, true));
+    let handler = MyHandler::new(tx, JobStatus::AckJob, true);
+    let mut el = EventLoop::new(disque, 1, handler);
     el.watch_queue(queue.to_vec());
     el.run_times(1);
     el.stop();
-    assert_eq!(rx.try_recv().unwrap().body(), b"my job".to_vec());
+    assert_eq!(rx.try_recv().unwrap().body(), job);
     assert!(rx.try_recv().is_err());
 }
 
 #[test]
 fn error() {
-    let queue = b"errorqueue";
-    let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
-    let jobid = disque.addjob(queue, b"my job", Duration::from_secs(10), None,
-            None, None, None, None, false).unwrap();
-    disque.getjob(true, None, &[queue]).unwrap();
-    disque.nack(&[jobid.as_bytes()]).unwrap();
+    let (disque, queue, _, _) = create_job(b"error", b"job456", true);
 
     let (tx, rx) = channel();
-    let mut el = EventLoop::new(disque, 1, MyHandler::new(tx,
-                JobStatus::AckJob, false));
+    let handler = MyHandler::new(tx, JobStatus::AckJob, false);
+    let mut el = EventLoop::new(disque, 1, handler);
     el.watch_queue(queue.to_vec());
     el.run_times(1);
     el.stop();
@@ -100,20 +105,15 @@ fn error() {
 
 #[test]
 fn error_and_job() {
-    let queue = b"errorjobqueue";
-    let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
-    let jobid = disque.addjob(queue, b"my job", Duration::from_secs(10), None,
-            None, None, None, None, false).unwrap();
-    disque.getjob(true, None, &[queue]).unwrap();
-    disque.nack(&[jobid.as_bytes()]).unwrap();
+    let (disque, queue, job, _) = create_job(b"errorandjob", b"job123", true);
 
     let (tx, rx) = channel();
-    let mut el = EventLoop::new(disque, 1, MyHandler::new(tx,
-                JobStatus::AckJob, true));
+    let handler = MyHandler::new(tx, JobStatus::AckJob, true);
+    let mut el = EventLoop::new(disque, 1, handler);
     el.watch_queue(queue.to_vec());
     el.run_times(1);
     el.stop();
     assert_eq!(rx.try_recv().unwrap().nack_additional_deliveries(), (1, 0));
-    assert_eq!(rx.try_recv().unwrap().body(), b"my job");
+    assert_eq!(rx.try_recv().unwrap().body(), job);
     assert!(rx.try_recv().is_err());
 }
