@@ -117,3 +117,21 @@ fn error_and_job() {
     assert_eq!(rx.try_recv().unwrap().body(), job);
     assert!(rx.try_recv().is_err());
 }
+
+#[test]
+fn fastack() {
+    let (disque, queue, _, jobid) = create_job(b"fastack", b"job123", false);
+
+    assert!(disque.show(jobid.as_bytes()).unwrap().is_some());
+
+    let (tx, rx) = channel();
+    let handler = MyHandler::new(tx, JobStatus::FastAck, true);
+    let mut el = EventLoop::new(disque, 1, handler);
+    el.watch_queue(queue.to_vec());
+    el.run_times(1);
+    el.stop();
+    rx.try_recv().unwrap();
+
+    let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
+    assert!(disque.show(jobid.as_bytes()).unwrap().is_none());
+}

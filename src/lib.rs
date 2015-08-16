@@ -103,13 +103,17 @@ impl EventLoop {
         }.unwrap();
     }
 
-    fn run_once(&mut self) -> bool {
-        while self.free_workers.len() != self.workers.len() {
+    fn mark_completed(&mut self) {
+        loop {
             match self.completion_rx.try_recv() {
                 Ok(c) => self.completed(c.0, c.1, c.2),
                 Err(_) => break,
             }
         }
+    }
+
+    fn run_once(&mut self) -> bool {
+        self.mark_completed();
         let worker = match self.free_workers.iter().next() {
             Some(w) => w.clone(),
             None => return false,
@@ -139,10 +143,11 @@ impl EventLoop {
         }
     }
 
-    pub fn stop(self) {
-        for worker in self.workers {
+    pub fn stop(mut self) {
+        for worker in std::mem::replace(&mut self.workers, vec![]).into_iter() {
             worker.1.send(None).unwrap();
             worker.0.join().unwrap();
         }
+        self.mark_completed();
     }
 }
