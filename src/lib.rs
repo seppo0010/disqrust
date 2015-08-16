@@ -5,6 +5,7 @@ use std::thread::JoinHandle;
 
 use disque::Disque;
 
+#[derive(Clone)]
 pub enum JobStatus {
     FastAck,
     AckJob,
@@ -13,7 +14,7 @@ pub enum JobStatus {
 
 pub trait Handler {
     fn process_job(&self, queue_name: &[u8], jobid: &String, body: Vec<u8>) -> JobStatus;
-    fn process_error(&self, queue_name: &[u8], jobid: &String, nack_threshold: u32, additional_deliveries_threshold: u32) -> bool;
+    fn process_error(&self, queue_name: &[u8], jobid: &String, nack: u32, additional_deliveries: u32) -> bool;
 }
 
 pub struct EventLoop<H: Handler> {
