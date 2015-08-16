@@ -5,3 +5,7 @@ authors = ["Sebastian Waisbrot <seppo0010@gmail.com>"]
 
 [dependencies.disque]
 path = "../disque-rs"
+
+[profile.test]
+[dependencies]
+redis = "0.5"

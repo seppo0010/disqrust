@@ -1,11 +1,15 @@
+#![feature(duration_span)]
+
 extern crate disqrust;
 extern crate disque;
+extern crate redis;
 
 use std::time::Duration;
 use std::sync::mpsc::{channel, Sender};
 
 use disque::Disque;
 use disqrust::{EventLoop, Handler, JobStatus};
+use redis::Value;
 
 enum HandlerCall {
     Job(Vec<u8>, String, Vec<u8>),
@@ -152,4 +156,28 @@ fn ackjob() {
 
     let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
     assert!(disque.show(jobid.as_bytes()).unwrap().is_none());
+}
+
+#[test]
+fn nack() {
+    let (disque, queue, _, jobid) = create_job(b"nack", b"job000", false);
+
+    let (tx, rx) = channel();
+    let handler = MyHandler::new(tx, JobStatus::NAck, true);
+    let mut el = EventLoop::new(disque, 1, handler);
+    el.watch_queue(queue.to_vec());
+    let d = Duration::span(|| {
+        el.run_times(3);
+        el.stop();
+        rx.try_recv().unwrap();
+        rx.try_recv().unwrap();
+        rx.try_recv().unwrap();
+    });
+    assert!(d.as_secs() < 1);
+
+    let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
+    assert_eq!(*disque.show(jobid.as_bytes()).unwrap().unwrap().get(
+                "nacks").unwrap(),
+            Value::Int(3));
+    disque.ackjob(&[jobid.as_bytes()]).unwrap();
 }

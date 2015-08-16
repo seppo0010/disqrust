@@ -138,8 +138,9 @@ impl EventLoop {
 
     pub fn run_times(&mut self, mut times: usize) {
         while times > 0 {
-            times -= 1;
-            self.run_once();
+            if self.run_once() {
+                times -= 1;
+            }
         }
     }
 
