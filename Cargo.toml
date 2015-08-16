@@ -3,8 +3,8 @@ name = "disqrust"
 version = "0.1.0"
 authors = ["Sebastian Waisbrot <seppo0010@gmail.com>"]
 
-[dependencies.disque]
-path = "../disque-rs"
+[dependencies]
+disque = "0.2.0"
 
 [profile.test]
 [dependencies]
