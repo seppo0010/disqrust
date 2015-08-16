@@ -12,8 +12,8 @@ pub enum JobStatus {
 }
 
 pub trait Handler {
-    fn process_job(&self, queue_name: &[u8], jobid: String, body: Vec<u8>) -> JobStatus;
-    fn process_error(&self, queue_name: &[u8], jobid: String, nack_threshold: u32, additional_deliveries_threshold: u32);
+    fn process_job(&self, queue_name: &[u8], jobid: &String, body: Vec<u8>) -> JobStatus;
+    fn process_error(&self, queue_name: &[u8], jobid: &String, nack_threshold: u32, additional_deliveries_threshold: u32) -> bool;
 }
 
 pub struct EventLoop<H: Handler> {
@@ -47,7 +47,12 @@ impl<H: Handler> EventLoop<H> {
         let (queue, jobid, job, nack, additional_deliveries
                 ) = self.disque.getjob_withcounters(
                     false, None, &*self.queues.iter().map(|k| &**k).collect::<Vec<_>>()).unwrap().unwrap();
-        self.handler.process_job(&*queue, jobid, job);
+        if nack > 0 || additional_deliveries > 0 {
+            if !self.handler.process_error(&*queue, &jobid, nack, additional_deliveries) {
+                return;
+            }
+        }
+        self.handler.process_job(&*queue, &jobid, job);
     }
 
     pub fn run(&self) {
