@@ -19,13 +19,21 @@ pub trait Handler {
     fn process_error(&self, queue_name: &[u8], jobid: &String, nack: u32, additional_deliveries: u32) -> bool;
 }
 
-fn create_worker<H: Handler + Send + Sync + 'static>(position: usize,
+#[derive(Clone)]
+struct HandlerWrapper<H: Handler> {
+    handler: Arc<H>,
+}
+unsafe impl<H: Handler> Send for HandlerWrapper<H> {}
+unsafe impl<H: Handler> Sync for HandlerWrapper<H> {}
+
+fn create_worker<H: Handler + Clone + 'static>(position: usize,
         task_rx: Receiver<Option<(Vec<u8>, String, Vec<u8>, u32, u32)>>,
         completion_tx: Sender<(usize, String, JobStatus)>,
-        handler_: Arc<H>,
+        handler_: HandlerWrapper<H>,
         ) -> JoinHandle<()> {
-    let handler = handler_.clone();
+    let handlerw = handler_.clone();
     spawn(move || {
+        let handler = handlerw.handler;
         loop {
             let (queue, jobid, job, nack,
                 additional_deliveries) = match task_rx.recv().unwrap() {
@@ -55,13 +63,13 @@ pub struct EventLoop {
 }
 
 impl EventLoop {
-    pub fn new<H: Handler + Clone + Send + Sync + 'static>(
+    pub fn new<H: Handler + Clone + 'static>(
             disque: Disque, numworkers: usize,
             handler: H) -> Self {
         let mut workers = Vec::with_capacity(numworkers);
         let mut free_workers = HashSet::with_capacity(numworkers);
         let (completion_tx, completion_rx) = channel();
-        let ahandler = Arc::new(handler);
+        let ahandler = HandlerWrapper { handler: Arc::new(handler) };
         for i in 0..numworkers {
             let (task_tx, task_rx) = channel();
             let jg = create_worker(i, task_rx, completion_tx.clone(),

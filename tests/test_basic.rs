@@ -46,9 +46,6 @@ impl MyHandler {
     }
 }
 
-unsafe impl Send for MyHandler {}
-unsafe impl Sync for MyHandler {}
-
 impl Handler for MyHandler {
     fn process_job(&self, queue_name: &[u8], jobid: &String, body: Vec<u8>
             ) -> JobStatus {
