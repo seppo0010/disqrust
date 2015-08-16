@@ -97,9 +97,9 @@ impl EventLoop {
     fn completed(&mut self, worker: usize, jobid: String, status: JobStatus) {
         self.free_workers.insert(worker);
         match status {
-            JobStatus::FastAck => self.disque.fastack(&[jobid.as_bytes()]),
-            JobStatus::AckJob => self.disque.ackjob(&[jobid.as_bytes()]),
-            JobStatus::NAck => self.disque.nack(&[jobid.as_bytes()]),
+            JobStatus::FastAck => self.disque.fastackjob(jobid.as_bytes()),
+            JobStatus::AckJob => self.disque.ackjob(jobid.as_bytes()),
+            JobStatus::NAck => self.disque.nackjob(jobid.as_bytes()),
         }.unwrap();
     }
 

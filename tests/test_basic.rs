@@ -74,7 +74,7 @@ fn create_job(queue: &[u8], job: &[u8], nack: bool
             None, None, None, None, false).unwrap();
     if nack {
         disque.getjob(true, None, &[queue]).unwrap();
-        disque.nack(&[jobid.as_bytes()]).unwrap();
+        disque.nackjob(jobid.as_bytes()).unwrap();
     }
     (disque, queue.to_vec(), job.to_vec(), jobid)
 }
@@ -179,5 +179,5 @@ fn nack() {
     assert_eq!(*disque.show(jobid.as_bytes()).unwrap().unwrap().get(
                 "nacks").unwrap(),
             Value::Int(3));
-    disque.ackjob(&[jobid.as_bytes()]).unwrap();
+    disque.ackjob(jobid.as_bytes()).unwrap();
 }
