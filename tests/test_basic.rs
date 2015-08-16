@@ -135,3 +135,21 @@ fn fastack() {
     let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
     assert!(disque.show(jobid.as_bytes()).unwrap().is_none());
 }
+
+#[test]
+fn ackjob() {
+    let (disque, queue, _, jobid) = create_job(b"ackjob", b"job123", false);
+
+    assert!(disque.show(jobid.as_bytes()).unwrap().is_some());
+
+    let (tx, rx) = channel();
+    let handler = MyHandler::new(tx, JobStatus::AckJob, true);
+    let mut el = EventLoop::new(disque, 1, handler);
+    el.watch_queue(queue.to_vec());
+    el.run_times(1);
+    el.stop();
+    rx.try_recv().unwrap();
+
+    let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
+    assert!(disque.show(jobid.as_bytes()).unwrap().is_none());
+}
