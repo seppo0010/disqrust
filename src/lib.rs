@@ -37,9 +37,16 @@ fn create_worker<H: Handler + Clone + 'static>(position: usize,
         let handler = handlerw.handler;
         loop {
             let (queue, jobid, job, nack,
-                additional_deliveries) = match task_rx.recv().unwrap() {
-                Some(v) => v,
-                None => break,
+                additional_deliveries) = match task_rx.recv() {
+                Ok(o) => match o {
+                    Some(v) => v,
+                    None => break,
+                },
+                Err(e) => {
+                    // TODO: better log
+                    println!("Error in worker thread {:?}", e);
+                    break;
+                }
             };
 
             if nack > 0 || additional_deliveries > 0 {
