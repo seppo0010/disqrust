@@ -17,7 +17,7 @@ script:
 
 rust:
 # - stable
-  - beta
+# - beta
   - nightly
 
 notifications:
