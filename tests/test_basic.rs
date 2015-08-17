@@ -188,8 +188,44 @@ fn jobcount_current_node() {
     el.watch_queue(queue.to_vec());
     el.run_times(1);
 
-    println!("{}", el.jobcount_current_node());
     assert!(el.jobcount_current_node() >= 1);
     el.stop();
     rx.try_recv().unwrap();
+}
+
+#[test]
+fn change_servers() {
+    let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
+    // This test does not apply when there is only one server
+    let hello = disque.hello().unwrap();
+    if hello.2.len() == 1 {
+        return;
+    }
+    let disque2 = Disque::open(&*format!("redis://{}:{}/",
+                hello.2[1].1, hello.2[1].2)).unwrap();
+
+    let (tx, rx) = channel();
+
+    let handler = MyHandler::new(tx, JobStatus::AckJob, true);
+    let mut el = EventLoop::new(disque2, 1, handler);
+    let oldid = el.current_node_id();
+    let queue = b"change_servers";
+    let job = b"job";
+
+    el.watch_queue(queue.to_vec());
+
+    let att = 20;
+    for _ in 0..att {
+        disque.addjob(queue, job, Duration::from_secs(10), None,
+                None, None, None, None, false).unwrap();
+        el.run_times(1);
+        el.do_cycle();
+        let newid = el.current_node_id();
+        if newid != oldid {
+            rx.try_recv().unwrap();
+            return;
+        }
+    }
+
+    panic!("After {} attempts it did not change node", att);
 }

@@ -125,14 +125,19 @@ impl EventLoop {
         }
     }
 
-    pub fn choose_favorite_node(&self) -> Vec<u8> {
+    pub fn choose_favorite_node(&self) -> (Vec<u8>, usize) {
         let default = (&Vec::new(), &0);
-        self.node_counter.iter().max_by(|node| node.1).unwrap_or(default).0.clone()
+        let r = self.node_counter.iter().max_by(|node| node.1).unwrap_or(default);
+        (r.0.clone(), r.1.clone())
     }
 
     pub fn jobcount_current_node(&self) -> usize {
         let nodeid = self.hello.1.as_bytes()[0..8].to_vec();
         self.node_counter.get(&nodeid).unwrap_or(&0).clone()
+    }
+
+    pub fn current_node_id(&self) -> String {
+        self.hello.1.clone()
     }
 
     fn run_once(&mut self) -> bool {
@@ -158,9 +163,50 @@ impl EventLoop {
         true
     }
 
-    pub fn run(&mut self) {
+    fn connect_to_node(&mut self, new_master: Vec<u8>) -> bool {
+        let mut hello = None;
+        for node in self.hello.2.iter() {
+            if node.0.as_bytes()[..new_master.len()] == *new_master {
+                match Disque::open(&*format!("redis://{}:{}/", node.1, node.2)) {
+                    Ok(disque) => {
+                        hello = Some(match disque.hello() {
+                            Ok(hello) => hello,
+                            Err(_) => break,
+                        });
+                        self.disque = disque;
+                        break;
+                    },
+                    Err(_) => (),
+                }
+                break;
+            }
+        }
+        match hello {
+            Some(h) => { self.hello = h; true }
+            None => false,
+        }
+    }
+
+    pub fn do_cycle(&mut self) {
+        let (fav_node, fav_count) = self.choose_favorite_node();
+        let current_count = self.jobcount_current_node();
+        // only change if it is at least 20% better than the current node
+        if fav_count as f64 / current_count as f64 > 1.2 {
+            self.connect_to_node(fav_node);
+        }
+    }
+
+    pub fn run(&mut self, cycle: usize) {
+        let mut c = 0;
         loop {
             self.run_once();
+            if cycle > 0 {
+                c += 1;
+                if c == cycle {
+                    self.do_cycle();
+                    c = 0;
+                }
+            }
         }
     }
 
@@ -198,5 +244,5 @@ fn favorite() {
     el.node_counter.insert(vec![1, 2, 3], 123);
     el.node_counter.insert(vec![4, 5, 6], 456);
     el.node_counter.insert(vec![0, 0, 0], 0);
-    assert_eq!(el.choose_favorite_node(), vec![4, 5, 6]);
+    assert_eq!(el.choose_favorite_node(), (vec![4, 5, 6], 456));
 }
