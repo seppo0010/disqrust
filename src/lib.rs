@@ -1,3 +1,4 @@
+#![feature(iter_cmp)]
 extern crate disque;
 
 use std::collections::{HashMap, HashSet};
@@ -117,6 +118,11 @@ impl EventLoop {
         }
     }
 
+    pub fn choose_favorite_node(&self) -> Vec<u8> {
+        let default = (&Vec::new(), &0);
+        self.node_counter.iter().max_by(|node| node.1).unwrap_or(default).0.clone()
+    }
+
     pub fn jobcount_current_node(&self) -> usize {
         let nodeid = self.hello.1.as_bytes()[0..8].to_vec();
         self.node_counter.get(&nodeid).unwrap_or(&0).clone()
@@ -166,4 +172,24 @@ impl EventLoop {
         }
         self.mark_completed();
     }
+}
+
+#[test]
+fn favorite() {
+    #[derive(Clone)]
+    struct MyHandler;
+    impl Handler for MyHandler {
+        fn process_job(&self, _: &[u8], _: &String, _: Vec<u8>) -> JobStatus {
+            JobStatus::AckJob
+        }
+        fn process_error(&self, _: &[u8], _: &String, _: u32, _: u32) -> bool {
+            false
+        }
+    }
+    let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
+    let mut el = EventLoop::new(disque, 1, MyHandler);
+    el.node_counter.insert(vec![1, 2, 3], 123);
+    el.node_counter.insert(vec![4, 5, 6], 456);
+    el.node_counter.insert(vec![0, 0, 0], 0);
+    assert_eq!(el.choose_favorite_node(), vec![4, 5, 6]);
 }
