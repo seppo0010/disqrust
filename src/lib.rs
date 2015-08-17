@@ -1,4 +1,3 @@
-#![feature(iter_cmp)]
 extern crate disque;
 
 use std::collections::{HashMap, HashSet};
@@ -133,8 +132,12 @@ impl EventLoop {
     }
 
     pub fn choose_favorite_node(&self) -> (Vec<u8>, usize) {
-        let default = (&Vec::new(), &0);
-        let r = self.node_counter.iter().max_by(|node| node.1).unwrap_or(default);
+        let mut r = (&Vec::new(), &0);
+        for n in self.node_counter.iter() {
+            if n.1 >= r.1 {
+                r = n;
+            }
+        }
         (r.0.clone(), r.1.clone())
     }
 
