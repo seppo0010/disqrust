@@ -6,3 +6,6 @@ authors = ["Sebastian Waisbrot <seppo0010@gmail.com>"]
 [dependencies]
 disque = "0.2.1"
 redis = "0.5"
+
+[features]
+nightly = []

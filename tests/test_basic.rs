@@ -1,4 +1,4 @@
-#![feature(duration_span)]
+#![cfg_attr(feature = "nightly", feature(duration_span))]
 extern crate disqrust;
 extern crate disque;
 extern crate redis;
@@ -50,6 +50,7 @@ impl MyHandler {
         }
     }
 
+    #[warn(dead_code)]
     fn set_sleep(&mut self, sleep: Option<u32>) {
         self.sleep = sleep;
     }
@@ -240,6 +241,7 @@ fn change_servers() {
     panic!("After {} attempts it did not change node", att);
 }
 
+#[cfg(feature = "nightly")]
 #[test]
 fn queueing() {
     let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
