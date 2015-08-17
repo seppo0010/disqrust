@@ -1,3 +1,4 @@
+#![feature(duration_span)]
 extern crate disqrust;
 extern crate disque;
 extern crate redis;
@@ -35,6 +36,7 @@ struct MyHandler {
     sender: Sender<HandlerCall>,
     process_job_ret: JobStatus,
     process_error_ret: bool,
+    sleep: Option<u32>,
 }
 
 impl MyHandler {
@@ -44,13 +46,21 @@ impl MyHandler {
             sender: sender,
             process_job_ret: process_job_ret,
             process_error_ret: process_error_ret,
+            sleep: None,
         }
+    }
+
+    fn set_sleep(&mut self, sleep: Option<u32>) {
+        self.sleep = sleep;
     }
 }
 
 impl Handler for MyHandler {
     fn process_job(&self, queue_name: &[u8], jobid: &String, body: Vec<u8>
             ) -> JobStatus {
+        if let Some(sleep) = self.sleep {
+            std::thread::sleep_ms(sleep);
+        }
         self.sender.send(HandlerCall::Job(queue_name.to_vec(), jobid.clone(),
                     body)).unwrap();
         self.process_job_ret.clone()
@@ -228,4 +238,41 @@ fn change_servers() {
     }
 
     panic!("After {} attempts it did not change node", att);
+}
+
+#[test]
+fn queueing() {
+    let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
+    // This test does not apply when there is only one server
+    let hello = disque.hello().unwrap();
+    if hello.2.len() == 1 {
+        return;
+    }
+    let disque2 = Disque::open(&*format!("redis://{}:{}/",
+                hello.2[1].1, hello.2[1].2)).unwrap();
+
+    let (tx, rx) = channel();
+
+    let mut handler = MyHandler::new(tx, JobStatus::AckJob, true);
+    handler.set_sleep(Some(200));
+    let mut el = EventLoop::new(disque2, 1, handler);
+    let queue = b"queueing";
+    el.watch_queue(queue.to_vec());
+
+    let d = Duration::span(|| {
+        disque.addjob(queue, b"job1", Duration::from_secs(10), None,
+                None, None, None, None, false).unwrap();
+        disque.addjob(queue, b"job2", Duration::from_secs(10), None,
+                None, None, None, None, false).unwrap();
+        disque.addjob(queue, b"job3", Duration::from_secs(10), None,
+                None, None, None, None, false).unwrap();
+        el.run_times(3);
+        el.stop();
+    });
+    assert_eq!(rx.try_recv().unwrap().body(), b"job1");
+    assert_eq!(rx.try_recv().unwrap().body(), b"job2");
+    assert_eq!(rx.try_recv().unwrap().body(), b"job3");
+    assert_eq!(d.as_secs(), 0);
+    assert!(d.subsec_nanos() >= 600_000_000);
+    assert!(d.subsec_nanos() <= 999_999_999);
 }
