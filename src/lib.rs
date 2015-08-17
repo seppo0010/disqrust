@@ -1,6 +1,6 @@
 extern crate disque;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{spawn, JoinHandle};
@@ -60,6 +60,8 @@ pub struct EventLoop {
     completion_rx: Receiver<(usize, String, JobStatus)>,
     free_workers: HashSet<usize>,
     queues: HashSet<Vec<u8>>,
+    hello: (u8, String, Vec<(String, String, u16, u32)>),
+    node_counter: HashMap<Vec<u8>, usize>,
 }
 
 impl EventLoop {
@@ -77,12 +79,15 @@ impl EventLoop {
             workers.push((jg, task_tx));
             free_workers.insert(i);
         }
+        let hello = disque.hello().unwrap();
         EventLoop {
             disque: disque,
             completion_rx: completion_rx,
             workers: workers,
+            hello: hello,
             free_workers: free_workers,
             queues: HashSet::new(),
+            node_counter: HashMap::new(),
         }
     }
 
@@ -112,6 +117,11 @@ impl EventLoop {
         }
     }
 
+    pub fn jobcount_current_node(&self) -> usize {
+        let nodeid = self.hello.1.as_bytes()[0..8].to_vec();
+        self.node_counter.get(&nodeid).unwrap_or(&0).clone()
+    }
+
     fn run_once(&mut self) -> bool {
         self.mark_completed();
         let worker = match self.free_workers.iter().next() {
@@ -125,6 +135,11 @@ impl EventLoop {
             Some(j) => j,
             None => return false,
         };
+
+        let nodeid = job.1.as_bytes()[2..10].to_vec();
+        let v = self.node_counter.remove(&nodeid).unwrap_or(0);
+        self.node_counter.insert(nodeid, v + 1);
+
         self.free_workers.remove(&worker);
         self.workers[worker].1.send(Some(job)).unwrap();
         true

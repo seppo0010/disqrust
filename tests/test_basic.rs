@@ -177,3 +177,19 @@ fn nack() {
             Value::Int(3));
     disque.ackjob(jobid.as_bytes()).unwrap();
 }
+
+#[test]
+fn jobcount_current_node() {
+    let (disque, queue, _, _) = create_job(b"ackjob", b"job123", false);
+
+    let (tx, rx) = channel();
+    let handler = MyHandler::new(tx, JobStatus::AckJob, true);
+    let mut el = EventLoop::new(disque, 1, handler);
+    el.watch_queue(queue.to_vec());
+    el.run_times(1);
+
+    println!("{}", el.jobcount_current_node());
+    assert!(el.jobcount_current_node() >= 1);
+    el.stop();
+    rx.try_recv().unwrap();
+}
