@@ -116,13 +116,20 @@ impl EventLoop {
         }.unwrap();
     }
 
-    fn mark_completed(&mut self) {
+    fn mark_completed(&mut self, blocking: bool) -> bool {
+        if blocking {
+            match self.completion_rx.recv() {
+                Ok(c) => self.completed(c.0, c.1, c.2),
+                Err(_) => return false,
+            }
+        }
         loop {
             match self.completion_rx.try_recv() {
                 Ok(c) => self.completed(c.0, c.1, c.2),
                 Err(_) => break,
             }
         }
+        true
     }
 
     pub fn choose_favorite_node(&self) -> (Vec<u8>, usize) {
@@ -141,7 +148,7 @@ impl EventLoop {
     }
 
     fn run_once(&mut self) -> bool {
-        self.mark_completed();
+        self.mark_completed(false);
         let worker = match self.free_workers.iter().next() {
             Some(w) => w.clone(),
             None => return false,
@@ -197,25 +204,37 @@ impl EventLoop {
     }
 
     pub fn run(&mut self, cycle: usize) {
-        let mut c = 0;
-        loop {
-            self.run_once();
-            if cycle > 0 {
-                c += 1;
-                if c == cycle {
-                    self.do_cycle();
-                    c = 0;
-                }
-            }
-        }
+        self.run_times_cycle(0, cycle)
     }
 
-    pub fn run_times(&mut self, mut times: usize) {
-        while times > 0 {
-            if self.run_once() {
-                times -= 1;
+    pub fn run_times(&mut self, times: usize) {
+        self.run_times_cycle(times, 0)
+    }
+
+    pub fn run_times_cycle(&mut self, times: usize, cycle: usize) {
+        let mut c = 0;
+        let mut counter = 0;
+        loop {
+            let did_run = self.run_once();
+            if did_run {
+                if times > 0 {
+                    counter += 1;
+                    if counter == times {
+                        break;
+                    }
+                }
+                if cycle > 0 {
+                    c += 1;
+                    if c == cycle {
+                        self.do_cycle();
+                        c = 0;
+                    }
+                }
+            } else {
+                self.mark_completed(true);
             }
         }
+        self.mark_completed(false);
     }
 
     pub fn stop(mut self) {
@@ -223,7 +242,7 @@ impl EventLoop {
             worker.1.send(None).unwrap();
             worker.0.join().unwrap();
         }
-        self.mark_completed();
+        self.mark_completed(false);
     }
 }
 
