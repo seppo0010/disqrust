@@ -1,9 +1,11 @@
+#![cfg_attr(feature = "nightly", feature(catch_panic))]
 extern crate disque;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::{spawn, JoinHandle};
+#[cfg(feature = "nightly")] use std::thread::catch_panic;
 
 use disque::Disque;
 
@@ -26,13 +28,34 @@ struct HandlerWrapper<H: Handler> {
 unsafe impl<H: Handler> Send for HandlerWrapper<H> {}
 unsafe impl<H: Handler> Sync for HandlerWrapper<H> {}
 
+#[cfg(feature = "nightly")]
+macro_rules! spawn {
+    ($func: expr, $err: expr) => {
+        spawn(move || {
+            match catch_panic(move || $func) {
+                Ok(_) => (),
+                Err(e) => ($err)(e),
+            }
+        })
+    }
+}
+
+#[cfg(not(feature = "nightly"))]
+macro_rules! spawn {
+    ($func: expr, $err: expr) => {
+        spawn(move || $func)
+    }
+}
+
+#[allow(unused_variables)]
 fn create_worker<H: Handler + Clone + 'static>(position: usize,
         task_rx: Receiver<Option<(Vec<u8>, String, Vec<u8>, u32, u32)>>,
-        completion_tx: Sender<(usize, String, JobStatus)>,
+        completion_tx: Sender<Result<(usize, String, JobStatus), usize>>,
         handler_: HandlerWrapper<H>,
         ) -> JoinHandle<()> {
     let handlerw = handler_.clone();
-    spawn(move || {
+    let completion_tx2 = completion_tx.clone();
+    spawn!({
         let handler = handlerw.handler;
         loop {
             let (queue, jobid, job, nack,
@@ -56,23 +79,28 @@ fn create_worker<H: Handler + Clone + 'static>(position: usize,
             }
             let status = handler.process_job(&*queue, &jobid, job);
 
-            completion_tx.send((position, jobid, status)).unwrap();
+            completion_tx.send(Ok((position, jobid, status))).unwrap();
         }
+    }, |e| {
+        println!("handle panic {:?}", e);
+        completion_tx2.send(Err(position)).unwrap();
     })
 }
 
-pub struct EventLoop {
+pub struct EventLoop<H: Handler + Clone + 'static> {
     disque: Disque,
     workers: Vec<(JoinHandle<()>, Sender<Option<(Vec<u8>, String, Vec<u8>, u32, u32)>>)>,
-    completion_rx: Receiver<(usize, String, JobStatus)>,
+    completion_rx: Receiver<Result<(usize, String, JobStatus), usize>>,
     free_workers: HashSet<usize>,
     queues: HashSet<Vec<u8>>,
     hello: (u8, String, Vec<(String, String, u16, u32)>),
     node_counter: HashMap<Vec<u8>, usize>,
+    completion_tx: Sender<Result<(usize, String, JobStatus), usize>>,
+    ahandler: HandlerWrapper<H>
 }
 
-impl EventLoop {
-    pub fn new<H: Handler + Clone + 'static>(
+impl<H: Handler + Clone + 'static> EventLoop<H> {
+    pub fn new(
             disque: Disque, numworkers: usize,
             handler: H) -> Self {
         let mut workers = Vec::with_capacity(numworkers);
@@ -95,6 +123,8 @@ impl EventLoop {
             free_workers: free_workers,
             queues: HashSet::new(),
             node_counter: HashMap::new(),
+            completion_tx: completion_tx,
+            ahandler: ahandler,
         }
     }
 
@@ -115,20 +145,38 @@ impl EventLoop {
         }.unwrap();
     }
 
-    fn mark_completed(&mut self, blocking: bool) -> bool {
-        if blocking {
-            match self.completion_rx.recv() {
-                Ok(c) => self.completed(c.0, c.1, c.2),
-                Err(_) => return false,
+    fn handle_worker_panic(&mut self, worker: usize) {
+        if self.workers.len() == 0 {
+            // shutting down
+            return;
+        }
+
+        let (task_tx, task_rx) = channel();
+        let jg = create_worker(worker, task_rx, self.completion_tx.clone(),
+                self.ahandler.clone());
+        self.workers[worker] = (jg, task_tx);
+        self.free_workers.insert(worker);
+    }
+
+    fn mark_completed(&mut self, blocking: bool) {
+        macro_rules! recv {
+            ($func: ident) => {
+                match self.completion_rx.$func() {
+                    Ok(c) => match c {
+                        Ok(c) => self.completed(c.0, c.1, c.2),
+                        Err(worker) => self.handle_worker_panic(worker),
+                    },
+                    Err(_) => return,
+                }
             }
+        }
+
+        if blocking {
+            recv!(recv);
         }
         loop {
-            match self.completion_rx.try_recv() {
-                Ok(c) => self.completed(c.0, c.1, c.2),
-                Err(_) => break,
-            }
+            recv!(try_recv);
         }
-        true
     }
 
     pub fn choose_favorite_node(&self) -> (Vec<u8>, usize) {

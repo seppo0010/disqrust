@@ -37,6 +37,7 @@ struct MyHandler {
     process_job_ret: JobStatus,
     process_error_ret: bool,
     sleep: Option<u32>,
+    panic: bool,
 }
 
 impl MyHandler {
@@ -47,12 +48,18 @@ impl MyHandler {
             process_job_ret: process_job_ret,
             process_error_ret: process_error_ret,
             sleep: None,
+            panic: false,
         }
     }
 
-    #[warn(dead_code)]
+    #[allow(dead_code)]
     fn set_sleep(&mut self, sleep: Option<u32>) {
         self.sleep = sleep;
+    }
+
+    #[allow(dead_code)]
+    fn should_panic(&mut self, panic: bool) {
+        self.panic = panic;
     }
 }
 
@@ -62,6 +69,11 @@ impl Handler for MyHandler {
         if let Some(sleep) = self.sleep {
             std::thread::sleep_ms(sleep);
         }
+
+        if self.panic {
+            panic!("panic on demand");
+        }
+
         self.sender.send(HandlerCall::Job(queue_name.to_vec(), jobid.clone(),
                     body)).unwrap();
         self.process_job_ret.clone()
@@ -80,7 +92,7 @@ fn create_job(queue: &[u8], job: &[u8], nack: bool
         ) -> (Disque, Vec<u8>, Vec<u8>, String) {
     let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
     let jobid = disque.addjob(queue, job, Duration::from_secs(10), None,
-            None, None, None, None, false).unwrap();
+            None, Some(Duration::from_secs(1)), None, None, false).unwrap();
     if nack {
         disque.getjob(true, None, &[queue]).unwrap();
         disque.nackjob(jobid.as_bytes()).unwrap();
@@ -104,7 +116,7 @@ fn basic() {
 
 #[test]
 fn error() {
-    let (disque, queue, _, _) = create_job(b"error", b"job456", true);
+    let (disque, queue, _, jobid) = create_job(b"error", b"job456", true);
 
     let (tx, rx) = channel();
     let handler = MyHandler::new(tx, JobStatus::AckJob, false);
@@ -114,6 +126,10 @@ fn error() {
     el.stop();
     assert_eq!(rx.try_recv().unwrap().nack_additional_deliveries(), (1, 0));
     assert!(rx.try_recv().is_err());
+
+    let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
+    disque.getjob(true, None, &[&*queue]).unwrap();
+    disque.ackjob(jobid.as_bytes()).unwrap();
 }
 
 #[test]
@@ -277,4 +293,24 @@ fn queueing() {
     assert_eq!(d.as_secs(), 0);
     assert!(d.subsec_nanos() >= 600_000_000);
     assert!(d.subsec_nanos() <= 999_999_999);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn panic_recover() {
+    let (disque, queue, _, jobid) = create_job(b"panic_recover", b"job451", false);
+
+    let (tx, rx) = channel();
+    let mut handler = MyHandler::new(tx, JobStatus::AckJob, true);
+    handler.should_panic(true);
+    let mut el = EventLoop::new(disque, 1, handler);
+    el.watch_queue(queue.to_vec());
+    el.run_times(3);
+    el.stop();
+    assert_eq!(rx.try_recv().unwrap().nack_additional_deliveries(), (0, 1));
+    assert_eq!(rx.try_recv().unwrap().nack_additional_deliveries(), (0, 2));
+    assert!(rx.try_recv().is_err());
+
+    let disque = Disque::open("redis://127.0.0.1:7711/").unwrap();
+    disque.ackjob(jobid.as_bytes()).unwrap();
 }
