@@ -47,10 +47,16 @@ macro_rules! spawn {
     }
 }
 
+#[allow(dead_code)]
+enum JobUpdate {
+    Success(usize, String, JobStatus),
+    Failure(usize),
+}
+
 #[allow(unused_variables)]
 fn create_worker<H: Handler + Clone + 'static>(position: usize,
         task_rx: Receiver<Option<(Vec<u8>, String, Vec<u8>, u32, u32)>>,
-        completion_tx: Sender<Result<(usize, String, JobStatus), usize>>,
+        completion_tx: Sender<JobUpdate>,
         handler_: HandlerWrapper<H>,
         ) -> JoinHandle<()> {
     let handlerw = handler_.clone();
@@ -79,23 +85,23 @@ fn create_worker<H: Handler + Clone + 'static>(position: usize,
             }
             let status = handler.process_job(&*queue, &jobid, job);
 
-            completion_tx.send(Ok((position, jobid, status))).unwrap();
+            completion_tx.send(JobUpdate::Success(position, jobid, status)).unwrap();
         }
     }, |e| {
         println!("handle panic {:?}", e);
-        completion_tx2.send(Err(position)).unwrap();
+        completion_tx2.send(JobUpdate::Failure(position)).unwrap();
     })
 }
 
 pub struct EventLoop<H: Handler + Clone + 'static> {
     disque: Disque,
     workers: Vec<(JoinHandle<()>, Sender<Option<(Vec<u8>, String, Vec<u8>, u32, u32)>>)>,
-    completion_rx: Receiver<Result<(usize, String, JobStatus), usize>>,
+    completion_rx: Receiver<JobUpdate>,
     free_workers: HashSet<usize>,
     queues: HashSet<Vec<u8>>,
     hello: (u8, String, Vec<(String, String, u16, u32)>),
     node_counter: HashMap<Vec<u8>, usize>,
-    completion_tx: Sender<Result<(usize, String, JobStatus), usize>>,
+    completion_tx: Sender<JobUpdate>,
     ahandler: HandlerWrapper<H>
 }
 
@@ -163,8 +169,10 @@ impl<H: Handler + Clone + 'static> EventLoop<H> {
             ($func: ident) => {
                 match self.completion_rx.$func() {
                     Ok(c) => match c {
-                        Ok(c) => self.completed(c.0, c.1, c.2),
-                        Err(worker) => self.handle_worker_panic(worker),
+                        JobUpdate::Success(worker, jobid, status) => {
+                            self.completed(worker, jobid, status);
+                        },
+                        JobUpdate::Failure(worker) => self.handle_worker_panic(worker),
                     },
                     Err(_) => return,
                 }
