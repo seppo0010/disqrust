@@ -34,7 +34,7 @@ pub trait Handler {
     }
 }
 
-/// A wrapper to send the handler to each worker thread without cloning it.
+/// A wrapper to send the handler to each worker thread.
 #[derive(Clone)]
 struct HandlerWrapper<H: Handler> {
     handler: Arc<H>,
