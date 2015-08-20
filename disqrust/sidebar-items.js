@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["JobStatus","Once a job execution finishes, change its status by performing one of this actions."]],"struct":[["EventLoop","Workers manager."]],"trait":[["Handler","Handles a job task."]]});

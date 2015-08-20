@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `EventLoop` struct in crate `disqrust`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, EventLoop">
+
+    <title>disqrust::EventLoop - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../main.css">
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <section class="sidebar">
+        
+        <p class='location'><a href='index.html'>disqrust</a></p><script>window.sidebarCurrent = {name: 'EventLoop', ty: 'struct', relpath: ''};</script><script defer src="sidebar-items.js"></script>
+    </section>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content struct">
+<h1 class='fqn'><span class='in-band'>Struct <a href='index.html'>disqrust</a>::<wbr><a class='struct' href=''>EventLoop</a></span><span class='out-of-band'><span id='render-detail'>
+            <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                [<span class='inner'>&#x2212;</span>]
+            </a>
+        </span><a id='src-374' class='srclink' href='../src/disqrust/lib.rs.html#142-164' title='goto source code'>[src]</a></span></h1>
+<pre class='rust struct'>pub struct EventLoop&lt;H: <a class='trait' href='../disqrust/trait.Handler.html' title='disqrust::Handler'>Handler</a> + <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a> + 'static&gt; {
+    // some fields omitted
+}</pre><div class='docblock'><p>Workers manager.</p>
+</div><h2 id='methods'>Methods</h2><h3 class='impl'><code>impl&lt;H: <a class='trait' href='../disqrust/trait.Handler.html' title='disqrust::Handler'>Handler</a> + <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a> + 'static&gt; <a class='struct' href='../disqrust/struct.EventLoop.html' title='disqrust::EventLoop'>EventLoop</a>&lt;H&gt;</code></h3><div class='impl-items'><h4 id='method.new' class='method'><code>fn <a href='#method.new' class='fnname'>new</a>(disque: Disque, numworkers: <a href='https://doc.rust-lang.org/nightly/std/primitive.usize.html'>usize</a>, handler: H) -&gt; Self</code></h4>
+<h4 id='method.watch_queue' class='method'><code>fn <a href='#method.watch_queue' class='fnname'>watch_queue</a>(&amp;mut self, queue_name: <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>&gt;)</code></h4>
+<div class='docblock'><p>Adds a queue to process its jobs.</p>
+</div><h4 id='method.unwatch_queue' class='method'><code>fn <a href='#method.unwatch_queue' class='fnname'>unwatch_queue</a>(&amp;mut self, queue_name: &amp;<a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>&gt;)</code></h4>
+<div class='docblock'><p>Removes a queue from job processing.</p>
+</div><h4 id='method.choose_favorite_node' class='method'><code>fn <a href='#method.choose_favorite_node' class='fnname'>choose_favorite_node</a>(&amp;self) -&gt; <a href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>(<a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>&gt;, <a href='https://doc.rust-lang.org/nightly/std/primitive.usize.html'>usize</a>)</a></code></h4>
+<div class='docblock'><p>Connects to the server that is issuing most of the jobs.</p>
+</div><h4 id='method.jobcount_current_node' class='method'><code>fn <a href='#method.jobcount_current_node' class='fnname'>jobcount_current_node</a>(&amp;self) -&gt; <a href='https://doc.rust-lang.org/nightly/std/primitive.usize.html'>usize</a></code></h4>
+<div class='docblock'><p>Number of jobs produced by the current server.</p>
+</div><h4 id='method.current_node_id' class='method'><code>fn <a href='#method.current_node_id' class='fnname'>current_node_id</a>(&amp;self) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/collections/string/struct.String.html' title='collections::string::String'>String</a></code></h4>
+<div class='docblock'><p>Identifier of the current server.</p>
+</div><h4 id='method.do_cycle' class='method'><code>fn <a href='#method.do_cycle' class='fnname'>do_cycle</a>(&amp;mut self)</code></h4>
+<div class='docblock'><p>Connects to the server doing most jobs.</p>
+</div><h4 id='method.run' class='method'><code>fn <a href='#method.run' class='fnname'>run</a>(&amp;mut self, cycle: <a href='https://doc.rust-lang.org/nightly/std/primitive.usize.html'>usize</a>)</code></h4>
+<div class='docblock'><p>Runs for ever. Every <code>cycle</code> jobs reevaluates which server to use.</p>
+</div><h4 id='method.run_times' class='method'><code>fn <a href='#method.run_times' class='fnname'>run_times</a>(&amp;mut self, times: <a href='https://doc.rust-lang.org/nightly/std/primitive.usize.html'>usize</a>)</code></h4>
+<div class='docblock'><p>Runs until <code>times</code> jobs are received.</p>
+</div><h4 id='method.run_times_cycle' class='method'><code>fn <a href='#method.run_times_cycle' class='fnname'>run_times_cycle</a>(&amp;mut self, times: <a href='https://doc.rust-lang.org/nightly/std/primitive.usize.html'>usize</a>, cycle: <a href='https://doc.rust-lang.org/nightly/std/primitive.usize.html'>usize</a>)</code></h4>
+<div class='docblock'><p>Runs <code>times</code> jobs and changes server every <code>cycle</code>.</p>
+</div><h4 id='method.stop' class='method'><code>fn <a href='#method.stop' class='fnname'>stop</a>(self)</code></h4>
+<div class='docblock'><p>Sends a kill signal to all workers and waits for them to finish their
+current job.</p>
+</div></div></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <div id="help" class="hidden">
+        <div>
+            <div class="shortcuts">
+                <h1>Keyboard Shortcuts</h1>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h1>Search Tricks</h1>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code>)
+                </p>
+            </div>
+        </div>
+    </div>
+
+    
+
+    <script>
+        window.rootPath = "../";
+        window.currentCrate = "disqrust";
+        window.playgroundUrl = "";
+    </script>
+    <script src="../jquery.js"></script>
+    <script src="../main.js"></script>
+    
+    <script async src="../search-index.js"></script>
+</body>
+</html>
