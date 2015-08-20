@@ -2,6 +2,12 @@
 name = "disqrust"
 version = "0.1.0"
 authors = ["Sebastian Waisbrot <seppo0010@gmail.com>"]
+description = "A high-level library to implement Disque workers"
+documentation = "http://seppo0010.github.io/disqrust/"
+repository = "https://github.com/seppo0010/disqrust"
+readme = "README.md"
+keywords = [ "disque", "message", "broker", "scheduling", "distributed" ]
+license-file = "LICENSE"
 
 [dependencies]
 disque = "0.2.1"
