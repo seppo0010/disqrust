@@ -9,18 +9,30 @@ use std::thread::{spawn, JoinHandle};
 
 use disque::Disque;
 
+/// Once a job execution finishes, change its status by performing one of this
+/// actions.
 #[derive(Clone)]
 pub enum JobStatus {
+    /// Performs a best effort cluster wide deletion of the job.
     FastAck,
+    /// Acknowledges the execution of the jobs.
     AckJob,
+    /// Puts back the job in the queue ASAP.
     NAck,
 }
 
+/// Handles a job task.
 pub trait Handler {
+    /// Process a job.
     fn process_job(&self, queue_name: &[u8], jobid: &String, body: Vec<u8>) -> JobStatus;
+    /// Decides if a job that failed in the past should be re-executed.
+    /// `nack` is the count of negatives acknowledges.
+    /// `additional_deliveries` is the number of times the job was processed
+    /// but it was not acknowledged.
     fn process_error(&self, queue_name: &[u8], jobid: &String, nack: u32, additional_deliveries: u32) -> bool;
 }
 
+/// A wrapper to send the handler to each worker thread without cloning it.
 #[derive(Clone)]
 struct HandlerWrapper<H: Handler> {
     handler: Arc<H>,
@@ -53,6 +65,9 @@ enum JobUpdate {
     Failure(usize),
 }
 
+/// Creates a worker to handle tasks coming from `task_rx`, reporting them back
+/// to `completion_tx` using the provided `handler_`. The `position` is the
+/// worker id.
 #[allow(unused_variables)]
 fn create_worker<H: Handler + Clone + 'static>(position: usize,
         task_rx: Receiver<Option<(Vec<u8>, String, Vec<u8>, u32, u32)>>,
@@ -93,15 +108,28 @@ fn create_worker<H: Handler + Clone + 'static>(position: usize,
     })
 }
 
+/// Workers manager.
 pub struct EventLoop<H: Handler + Clone + 'static> {
+    /// The connection to pull the jobs.
     disque: Disque,
+    /// The worker threads and their channels to send jobs.
     workers: Vec<(JoinHandle<()>, Sender<Option<(Vec<u8>, String, Vec<u8>, u32, u32)>>)>,
+    /// The receiver when tasks are completed.
     completion_rx: Receiver<JobUpdate>,
-    free_workers: HashSet<usize>,
-    queues: HashSet<Vec<u8>>,
-    hello: (u8, String, Vec<(String, String, u16, u32)>),
-    node_counter: HashMap<Vec<u8>, usize>,
+    /// The sender for when tasks are completed. Keeping a reference just to
+    /// provide to workers.
     completion_tx: Sender<JobUpdate>,
+    /// Set of available workers.
+    free_workers: HashSet<usize>,
+    /// Watched queue names.
+    queues: HashSet<Vec<u8>>,
+    /// Server network layout.
+    hello: (u8, String, Vec<(String, String, u16, u32)>),
+    /// Counter for where the tasks are coming from. If most tasks are coming
+    /// from a server that is not the one the connection is issued, it can be
+    /// used to connect directly to the other one.
+    node_counter: HashMap<Vec<u8>, usize>,
+    /// The task processor.
     ahandler: HandlerWrapper<H>
 }
 
@@ -134,14 +162,17 @@ impl<H: Handler + Clone + 'static> EventLoop<H> {
         }
     }
 
+    /// Adds a queue to process its jobs.
     pub fn watch_queue(&mut self, queue_name: Vec<u8>) {
         self.queues.insert(queue_name);
     }
 
+    /// Removes a queue from job processing.
     pub fn unwatch_queue(&mut self, queue_name: &Vec<u8>) {
         self.queues.remove(queue_name);
     }
 
+    /// Marks a job as completed
     fn completed(&mut self, worker: usize, jobid: String, status: JobStatus) {
         self.free_workers.insert(worker);
         match status {
@@ -151,6 +182,7 @@ impl<H: Handler + Clone + 'static> EventLoop<H> {
         }.unwrap();
     }
 
+    /// Creates a new worker to replace one that has entered into panic.
     fn handle_worker_panic(&mut self, worker: usize) {
         if self.workers.len() == 0 {
             // shutting down
@@ -164,6 +196,8 @@ impl<H: Handler + Clone + 'static> EventLoop<H> {
         self.free_workers.insert(worker);
     }
 
+    /// Checks workers to see if they have completed their jobs.
+    /// If `blocking` it will wait until at least one new is available.
     fn mark_completed(&mut self, blocking: bool) {
         macro_rules! recv {
             ($func: ident) => {
@@ -187,6 +221,7 @@ impl<H: Handler + Clone + 'static> EventLoop<H> {
         }
     }
 
+    /// Connects to the server that is issuing most of the jobs.
     pub fn choose_favorite_node(&self) -> (Vec<u8>, usize) {
         let mut r = (&Vec::new(), &0);
         for n in self.node_counter.iter() {
@@ -197,15 +232,19 @@ impl<H: Handler + Clone + 'static> EventLoop<H> {
         (r.0.clone(), r.1.clone())
     }
 
+    /// Number of jobs produced by the current server.
     pub fn jobcount_current_node(&self) -> usize {
         let nodeid = self.hello.1.as_bytes()[0..8].to_vec();
         self.node_counter.get(&nodeid).unwrap_or(&0).clone()
     }
 
+    /// Identifier of the current server.
     pub fn current_node_id(&self) -> String {
         self.hello.1.clone()
     }
 
+    /// Fetches a task and sends it to a worker.
+    /// Returns true if a job was received and is processing.
     fn run_once(&mut self) -> bool {
         self.mark_completed(false);
         let worker = match self.free_workers.iter().next() {
@@ -229,6 +268,7 @@ impl<H: Handler + Clone + 'static> EventLoop<H> {
         true
     }
 
+    /// Connects to a new server.
     fn connect_to_node(&mut self, new_master: Vec<u8>) -> bool {
         let mut hello = None;
         for node in self.hello.2.iter() {
@@ -253,6 +293,7 @@ impl<H: Handler + Clone + 'static> EventLoop<H> {
         }
     }
 
+    /// Connects to the server doing most jobs.
     pub fn do_cycle(&mut self) {
         let (fav_node, fav_count) = self.choose_favorite_node();
         let current_count = self.jobcount_current_node();
@@ -262,14 +303,17 @@ impl<H: Handler + Clone + 'static> EventLoop<H> {
         }
     }
 
+    /// Runs for ever. Every `cycle` jobs reevaluates which server to use.
     pub fn run(&mut self, cycle: usize) {
         self.run_times_cycle(0, cycle)
     }
 
+    /// Runs until `times` jobs are received.
     pub fn run_times(&mut self, times: usize) {
         self.run_times_cycle(times, 0)
     }
 
+    /// Runs `times` jobs and changes server every `cycle`.
     pub fn run_times_cycle(&mut self, times: usize, cycle: usize) {
         let mut c = 0;
         let mut counter = 0;
@@ -296,6 +340,8 @@ impl<H: Handler + Clone + 'static> EventLoop<H> {
         self.mark_completed(false);
     }
 
+    /// Sends a kill signal to all workers and waits for them to finish their
+    /// current job.
     pub fn stop(mut self) {
         for worker in std::mem::replace(&mut self.workers, vec![]).into_iter() {
             worker.1.send(None).unwrap();
