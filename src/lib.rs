@@ -29,7 +29,9 @@ pub trait Handler {
     /// `nack` is the count of negatives acknowledges.
     /// `additional_deliveries` is the number of times the job was processed
     /// but it was not acknowledged.
-    fn process_error(&self, queue_name: &[u8], jobid: &String, nack: u32, additional_deliveries: u32) -> bool;
+    fn process_error(&self, _: &[u8], _: &String, _: u32, _: u32) -> bool {
+        false
+    }
 }
 
 /// A wrapper to send the handler to each worker thread without cloning it.
